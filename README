@@ -1,1 +1,48 @@
-# asterisk-patches-gpl
+
+This is a repository of my Asterisk (www.asterisk.org) patches. The patches are
+licenced under the GPLv2 General Public Licence. As I'm not willing to sign
+any copyright agreement with Digium it is unlikely that these patches will
+go into Asterisk's upstream.
+
+You may however (I do explicitly allow this) study the patches and then
+write your own solving the same problem or implementing similar functionality
+and then submit those to Digium on your own.
+
+
+Currently, following patches are available:
+
+1) for asterisk-11.13.1~dfsg (Debian Wheezy Backports as of Nov 9, 2017)
+------------------------------------------------------------------------
+
+ • asterisk-voicemail-any-variables+bugifxes.patch
+
+This patch allows the Voicemail application to use any variable available
+to the appropriate asterisk channel (and not just a couple of predefined
+variables like VM_CIDNAME, VM_CIDNUM etc.) to be used for text substitutions
+of field defined in voicemail.conf (the is mostly of interrest for the IMAP
+backend or for paging).
+
+Moreover, now you can even use substitutions to 'serveremail' which is
+a field in the voicemail.conf defining the sender email adress. This makes
+it possible to let the voicemail email message to look like beeing sent
+directly from the caller.
+
+E.g. if you set in your diaplan:
+
+exten => *555,1,Answer()
+exten => *555,n,Set(TICKET_NR=1234567)
+exten => *555,n,Set(VM_CID_EMAIL=john.doe@example.com)
+exten => *555,n,Voicemail(1,s)
+exten => *555,n,Hangup()
+
+and in the voicemail.conf:
+
+fromstring=${VM_CIDNAME}
+serveremail=${VM_CID_EMAIL}
+emailsubject=[Ticket ${TICKET_NR}]: New message from ${VM_CIDNAME} (${VM_CIDNUM})
+
+then the email will look like beeing sent from john.doe@example.com and the appropriate
+ticket number will appear in the subject.
+
+
+
