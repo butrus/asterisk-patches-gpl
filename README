@@ -46,3 +46,20 @@ ticket number will appear in the subject.
 
 
 
+ • asterisk-voicemail-any-variables+bugifxes+content-type+reply-to.patch
+
+This is a cumulative patch based on the above one. This patch adds two features:
+
+ 1) the possibility to set the content-type of the message (e.g. to text/html)
+from the voicemail.conf configuration file (the "emailcontenttype" option).
+
+ 2) the possibility to set the reply-to field of the message
+(via the "emailreplyto" option in voicemail.conf).
+
+Both options support full substitution, so all of the following are valid options:
+
+emailcontenttype=text/html
+emailcontenttype=text/${X_CONTENT}
+emailreplyto=${CALLER_NAME} <${CALLER_EMAIL}>
+emailreplyto=${CALLER_NAME} <${VM_CIDNUM}@kdakosoft.ua>
+
