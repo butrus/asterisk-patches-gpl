@@ -20,7 +20,8 @@ This patch allows the Voicemail application to use any variable available
 to the appropriate asterisk channel (and not just a couple of predefined
 variables like VM_CIDNAME, VM_CIDNUM etc.) to be used for text substitutions
 of field defined in voicemail.conf (the is mostly of interrest for the IMAP
-backend or for paging).
+backend or for paging). For more about the problem, see:
+http://lists.digium.com/pipermail/asterisk-users/2007-August/194717.html
 
 Moreover, now you can even use substitutions to 'serveremail' which is
 a field in the voicemail.conf defining the sender email adress. This makes
