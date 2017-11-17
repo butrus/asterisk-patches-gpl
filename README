@@ -12,9 +12,10 @@ and then submit those to Digium on your own.
 Currently, following patches are available:
 
 1) for asterisk-11.13.1~dfsg (Debian Wheezy Backports as of Nov 9, 2017)
-------------------------------------------------------------------------
+========================================================================
 
- • asterisk-voicemail-any-variables+bugifxes.patch
+ a) asterisk-voicemail-any-variables+bugifxes.patch
+ --------------------------------------------------
 
 This patch allows the Voicemail application to use any variable available
 to the appropriate asterisk channel (and not just a couple of predefined
@@ -47,7 +48,8 @@ ticket number will appear in the subject.
 
 
 
- • asterisk-voicemail-any-variables+bugifxes+content-type+reply-to.patch
+ b) asterisk-voicemail-any-variables+bugifxes+content-type+reply-to.patch
+ ------------------------------------------------------------------------
 
 This is a cumulative patch based on the above one. This patch adds two features:
 
@@ -63,4 +65,52 @@ emailcontenttype=text/html
 emailcontenttype=text/${X_CONTENT}
 emailreplyto=${CALLER_NAME} <${CALLER_EMAIL}>
 emailreplyto=${CALLER_NAME} <${VM_CIDNUM}@kdakosoft.ua>
+
+
+
+ c) asterisk-app-sipnotify.patch
+ -------------------------------
+
+This is a patch to chan_sip.c which implements the SIPNotify dialplan application
+(not to be confused with the existing SIPNotify AMI method).
+
+The SIPNotify dialplan app has following syntax:
+
+ SIPNotify(type[,peer])
+
+Where 'type' is the type of the SIP NOTIFY message as defined in the sip_notify.conf file
+and the optional 'peer' is the peer for the message to be sent to. If no 'peer' is specified
+the message will be sent to the current peer.
+
+For example:
+
+exten => *888,1,Answer()
+        same =>n,Verbose(0, Send XML-Push message to the calling Yealink phone...)
+        same =>n,SIPNotify(yealink-push-xml)	; must be defined in sip_notify.conf
+        same =>n,Hangup()
+
+will cause Asterisk to send an "XML-Push" message to the calling Yealink phone after *888
+has been dialed. If you want to send such a message to another peer, just call:
+
+exten => *999,1,Answer()
+        same =>n,SIPNotify(yealink-push-xml,SIP/123)	; "SIP/" is NOT mandatory
+        same =>n,Hangup()
+
+SIPNotify also supports variable substitution, so you can e.g. have in sip_notify.conf:
+
+[yealink-execute]
+Event=>yealink-xml
+Content-type=>application/xml
+Content=><YealinkIPPhoneExecute Beep="yes">
+Content=><Title wrap="yes">Execute</Title>
+Content=><ExecuteItem>${EXECUTE_URL}</ExecuteItem>
+Content=></YealinkIPPhoneExecute>
+
+and then set the appropriate variable(s) in the dialplan:
+
+exten => *555,1,Answer()
+	same =>n,Set(EXECUTE_URL=http://someserver/push.xml)
+        same =>n,SIPNotify(yealink-execute)
+        same =>n,Hangup()
+
 
