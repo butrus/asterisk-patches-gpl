@@ -1,0 +1,216 @@
+--- channels/chan_sip.c.orig	2017-11-17 09:40:00.534484946 +0100
++++ channels/chan_sip.c	2017-11-17 17:55:10.126595469 +0100
+@@ -210,6 +210,10 @@
+ 
+ #include "asterisk.h"
+ 
++// DELME - compile only one module !
++#undef AST_BUILDOPT_SUM
++#define AST_BUILDOPT_SUM ""
++
+ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 422113 $")
+ 
+ #include <signal.h>
+@@ -328,6 +332,21 @@
+ 			<para>Always returns <literal>0</literal>.</para>
+ 		</description>
+ 	</application>
++	<application name="SIPNotify" language="en_US">
++		<synopsis>
++			Send a SIP NOTIFY message to a peer.
++		</synopsis>
++		<syntax argsep=",">
++			<parameter name="Type" required="true" />
++			<parameter name="Peer" required="false" />
++		</syntax>
++		<description>
++			<para>Sends a SIP NOTIFY message as defined in sip_notify.conf to a peer
++			specified by the Peer parameter. If the Peer parameter is missing the message
++			will be sent to the current of the current channel.</para>
++			<para>Always returns <literal>0</literal>.</para>
++		</description>
++	</application>
+ 	<application name="SIPSendCustomINFO" language="en_US">
+ 		<synopsis>
+ 			Send a custom INFO frame on specified channels.
+@@ -32886,6 +32905,7 @@
+ static char *app_dtmfmode = "SIPDtmfMode";
+ static char *app_sipaddheader = "SIPAddHeader";
+ static char *app_sipremoveheader = "SIPRemoveHeader";
++static char *app_sipnotify = "SIPNotify";
+ #ifdef TEST_FRAMEWORK
+ static char *app_sipsendcustominfo = "SIPSendCustomINFO";
+ #endif
+@@ -33017,6 +33037,156 @@
+ 	return 0;
+ }
+ 
++/*! \brief Send SIP NOTIFY message as specified in sip_notify.conf */
++static int sip_sipnotify(struct ast_channel *chan, const char *data)
++{
++	struct sip_pvt *p,*op;
++	struct ast_variable *header, *varlist, *var;
++	char *parse;
++	char buf[512];
++	struct ast_str *str = ast_str_create(16);
++
++	AST_DECLARE_APP_ARGS(args,
++                AST_APP_ARG(type);
++                AST_APP_ARG(peer);
++        );
++
++	if (ast_strlen_zero(data)) {
++		ast_log(AST_LOG_WARNING, "This application requires at least one argument! (SIP-NOTIFY-Type)\n");
++		return 0;
++	}
++
++	parse = ast_strdupa(data);
++	AST_STANDARD_APP_ARGS(args, parse);
++
++	if (ast_strlen_zero(args.type)) {
++		ast_log(AST_LOG_WARNING, "This application requires at least one argument! (SIP-NOTIFY-Type)\n");
++		return 0;
++	}
++
++//	ast_channel_lock(chan);
++//	sip_pvt_lock(p); 
++
++	if (!(p = sip_alloc(NULL, NULL, 0, SIP_NOTIFY, NULL, NULL))) {
++		ast_log(LOG_WARNING, "Unable to build sip pvt data for notify (memory/socket error)\n");
++		return 0;
++	}
++
++	if (ast_strlen_zero(args.peer))
++	{
++		/* no peer specified: use the current peer from channel */
++
++		/* DIRTY: just copy the pvt from the current channel... see: create_addr()
++		   and create_addr_from_peer(). TODO: Probably don't need to copy all of the following.
++		   We do not copy audio (RTP) parameters as they are not used for SIP NOTIFY. */
++
++		op=ast_channel_tech_pvt(chan);
++
++		ast_sockaddr_copy(&p->sa, &op->sa);
++		ast_sockaddr_copy(&p->recv, &op->recv);
++		copy_socket_data(&p->socket, &op->socket);
++
++		p->timer_t1=op->timer_t1;
++		p->timer_b=op->timer_b;
++		p->disallowed_methods=op->disallowed_methods;
++		p->portinuri=op->portinuri;
++		p->prefs = op->prefs;
++		p->amaflags = op->amaflags;
++
++		ast_string_field_set(p, tohost, op->tohost);
++		ast_string_field_set(p, fromdomain, op->fromdomain);
++		ast_string_field_set(p, fromuser, op->fromuser);
++		ast_string_field_set(p, language, op->language);
++		p->relatedpeer=sip_ref_peer(op->relatedpeer, " just copy the peer");
++		
++		ref_proxy(p, obproxy_get(p, NULL)) ;
++
++		ast_format_cap_copy(p->caps, op->caps);
++		ast_copy_flags(&p->flags[0], &op->flags[0], SIP_FLAGS_TO_COPY);
++		ast_copy_flags(&p->flags[1], &op->flags[1], SIP_PAGE2_FLAGS_TO_COPY);
++		ast_copy_flags(&p->flags[2], &op->flags[2], SIP_PAGE3_FLAGS_TO_COPY);
++
++		ast_string_field_set(p, engine, op->engine);
++
++		ast_string_field_set(p, authname, op->username);
++		ast_string_field_set(p, username, op->username);
++		ast_string_field_set(p, mohsuggest, op->mohsuggest);
++		ast_string_field_set(p, mohinterpret, op->mohinterpret);
++		ast_string_field_set(p, tohost, op->tohost);
++		ast_string_field_set(p, fullcontact, op->fullcontact);
++		ast_string_field_set(p, accountcode, op->accountcode);
++		ast_string_field_set(p, context, op->context);
++		ast_string_field_set(p, cid_num, op->cid_num);
++		ast_string_field_set(p, cid_name, op->cid_name);
++		ast_string_field_set(p, cid_tag, op->cid_tag);
++		ast_string_field_set(p, mwi_from, op->mwi_from);
++
++		ast_cc_copy_config_params(p->cc_params, op->cc_params);
++
++		p->chanvars = copy_vars(op->chanvars);
++	}
++	else
++	{
++		if (!strncasecmp(args.peer, "sip/", 4)) {
++			args.peer += 4;
++		}
++		if (create_addr(p, args.peer, NULL, 1)) {
++			/* Maybe they're not registered, etc. */
++			dialog_unlink_all(p);
++			dialog_unref(p, "unref dialog inside for loop" );
++			/* sip_destroy(p); */
++			return 0;
++		}
++	}
++
++	/* Notify is outgoing call */
++	ast_set_flag(&p->flags[0], SIP_OUTGOING);
++	sip_notify_alloc(p);
++
++	p->notify->headers = header = ast_variable_new("Subscription-State", "terminated", "");
++
++	varlist = ast_variable_browse(notify_types, args.type);
++
++	if (!varlist) {
++		ast_log(LOG_WARNING, "Unable to find notify type '%s'\n", args.type);
++//		sip_pvt_lock(p); 		// TODO: ??
++//		ast_channel_unlock(chan);	// TODO: ??
++		return 0;
++	}
++
++	for (var = varlist; var; var = var->next) {
++		ast_copy_string(buf, var->value, sizeof(buf));
++		ast_unescape_semicolon(buf);
++		ast_str_substitute_variables(&str, 0, chan, buf);
++
++		if (!strcasecmp(var->name, "Content")) {
++			if (ast_str_strlen(p->notify->content))
++				ast_str_append(&p->notify->content, 0, "\r\n");
++			ast_str_append(&p->notify->content, 0, "%s", ast_str_buffer(str));
++		} else if (!strcasecmp(var->name, "Content-Length")) {
++			ast_log(LOG_WARNING, "it is not necessary to specify Content-Length in sip_notify.conf, ignoring\n");
++		} else {
++			header->next = ast_variable_new(var->name, ast_str_buffer(str), "");
++			header = header->next;
++		}
++	}
++
++	/* Now that we have the peer's address, set our ip and change callid */
++	ast_sip_ouraddrfor(&p->sa, &p->ourip, p);
++	build_via(p);
++
++	change_callid_pvt(p, NULL);
++
++	sip_scheddestroy(p, SIP_TRANS_TIMEOUT);
++	transmit_invite(p, SIP_NOTIFY, 0, 2, NULL);
++	dialog_unref(p, "bump down the count of p since we're done with it.");
++
++//	sip_pvt_lock(p); 		// TODO: ??
++//	ast_channel_unlock(chan);	// TODO: ??
++
++	return 0;
++}
++
+ #ifdef TEST_FRAMEWORK
+ /*! \brief Send a custom INFO message via AST_CONTROL_CUSTOM indication */
+ static int sip_sendcustominfo(struct ast_channel *chan, const char *data)
+@@ -34606,6 +34776,7 @@
+ 	ast_register_application_xml(app_dtmfmode, sip_dtmfmode);
+ 	ast_register_application_xml(app_sipaddheader, sip_addheader);
+ 	ast_register_application_xml(app_sipremoveheader, sip_removeheader);
++	ast_register_application_xml(app_sipnotify, sip_sipnotify);
+ #ifdef TEST_FRAMEWORK
+ 	ast_register_application_xml(app_sipsendcustominfo, sip_sendcustominfo);
+ #endif
+@@ -34715,6 +34886,7 @@
+ 	ast_unregister_application(app_dtmfmode);
+ 	ast_unregister_application(app_sipaddheader);
+ 	ast_unregister_application(app_sipremoveheader);
++	ast_unregister_application(app_sipnotify);
+ #ifdef TEST_FRAMEWORK
+ 	ast_unregister_application(app_sipsendcustominfo);
+ 
